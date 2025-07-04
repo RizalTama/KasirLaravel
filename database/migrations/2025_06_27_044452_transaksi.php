@@ -20,6 +20,7 @@ return new class extends Migration
             $table->integer('jumlah');
             $table->integer('total_harga');
             $table->integer('bayar');
+            $table->string('invoice_number')->nullable();
             $table->integer('kembalian');
             $table->timestamps();
         });

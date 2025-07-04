@@ -620,70 +620,110 @@
                 }
             });
 
-            // Process transaction button
-            document.getElementById('btn-process').addEventListener('click', function() {
-                const paymentAmount = parseFloat(document.getElementById('payment-amount').value) || 0;
+           document.getElementById('btn-process').addEventListener('click', function() {
+    const paymentAmount = parseFloat(document.getElementById('payment-amount').value) || 0;
 
-                if (cart.length === 0) {
-                    alert('Keranjang masih kosong!');
-                    return;
-                }
+    if (cart.length === 0) {
+        alert('Keranjang masih kosong!');
+        return;
+    }
 
-                if (paymentAmount < totalAmount) {
-                    alert('Uang pembeli kurang dari total harga!');
-                    return;
-                }
+    if (paymentAmount < totalAmount) {
+        alert('Uang pembeli kurang dari total harga!');
+        return;
+    }
 
-                // Prepare transaction data
-                const transactionData = {
-                    items: cart.map(item => ({
-                        produk_id: item.productId,
-                        jumlah: item.quantity
-                    })),
-                    bayar: paymentAmount
-                };
+    // Show loading state
+    const processBtn = this;
+    const originalText = processBtn.innerHTML;
+    processBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Memproses...';
+    processBtn.disabled = true;
 
-                // Send AJAX request
-                fetch('{{ route("kasir.transaksi") }}', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': csrfToken
-                    },
-                    body: JSON.stringify(transactionData)
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        // Show success modal
-                        document.getElementById('modal-total').textContent = `Rp ${data.data.total_harga.toLocaleString('id-ID')}`;
-                        document.getElementById('modal-bayar').textContent = `Rp ${data.data.bayar.toLocaleString('id-ID')}`;
-                        document.getElementById('modal-kembalian').textContent = `Rp ${data.data.kembalian.toLocaleString('id-ID')}`;
-                        
-                        const successModal = new bootstrap.Modal(document.getElementById('successModal'));
-                        successModal.show();
+    // Prepare transaction data
+    const transactionData = {
+        items: cart.map(item => ({
+            produk_id: item.productId,
+            jumlah: item.quantity
+        })),
+        bayar: paymentAmount
+    };
 
-                        // Clear cart
-                        cart = [];
-                        totalAmount = 0;
-                        updateCartDisplay();
-                        updateTotal();
-                        document.getElementById('payment-amount').value = '';
-                        document.getElementById('kembalian-display').style.display = 'none';
+    // Send AJAX request
+    fetch('{{ route("kasir.transaksi") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': csrfToken
+        },
+        body: JSON.stringify(transactionData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Update modal content
+            document.getElementById('modal-total').textContent = `Rp ${data.data.total_harga.toLocaleString('id-ID')}`;
+            document.getElementById('modal-bayar').textContent = `Rp ${data.data.bayar.toLocaleString('id-ID')}`;
+            document.getElementById('modal-kembalian').textContent = `Rp ${data.data.kembalian.toLocaleString('id-ID')}`;
+            
+            // Add invoice number to modal
+            const modalHeader = document.querySelector('#successModal .modal-title');
+            modalHeader.innerHTML = `<i class="fas fa-check-circle me-2"></i>Transaksi Berhasil - ${data.data.invoice_number}`;
+            
+            // Add download button to modal
+            const modalFooter = document.querySelector('#successModal .modal-footer');
+            modalFooter.innerHTML = `
+                <a href="/kasir/download-invoice/${data.data.invoice_number}" 
+                   class="btn btn-primary" 
+                   download>
+                    <i class="fas fa-download me-2"></i>Download Invoice
+                </a>
+                <button type="button" class="btn btn-success" data-bs-dismiss="modal">
+                    <i class="fas fa-check me-2"></i>OK
+                </button>
+            `;
 
-                        // Reload page after modal is closed to update stock
-                        document.getElementById('successModal').addEventListener('hidden.bs.modal', function() {
-                            location.reload();
-                        });
-                    } else {
-                        alert('Error: ' + data.message);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('Terjadi kesalahan saat memproses transaksi');
-                });
+            // Show success modal
+            const successModal = new bootstrap.Modal(document.getElementById('successModal'));
+            successModal.show();
+
+            // Auto download PDF
+            if (data.data.pdf_url) {
+                setTimeout(() => {
+                    const link = document.createElement('a');
+                    link.href = data.data.pdf_url;
+                    link.download = `Invoice_${data.data.invoice_number}.pdf`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }, 1000);
+            }
+
+            // Clear cart
+            cart = [];
+            totalAmount = 0;
+            updateCartDisplay();
+            updateTotal();
+            document.getElementById('payment-amount').value = '';
+            document.getElementById('kembalian-display').style.display = 'none';
+
+            // Reload page after modal is closed to update stock
+            document.getElementById('successModal').addEventListener('hidden.bs.modal', function() {
+                location.reload();
             });
+        } else {
+            alert('Error: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Terjadi kesalahan saat memproses transaksi');
+    })
+    .finally(() => {
+        // Reset button state
+        processBtn.innerHTML = originalText;
+        processBtn.disabled = false;
+    });
+});
         });
     </script>
 </body>

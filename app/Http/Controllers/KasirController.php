@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use App\Models\Produk;
 use App\Models\Transaksi;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class KasirController extends Controller
@@ -37,7 +38,7 @@ class KasirController extends Controller
         return response()->json($produk);
     }
 
-    public function proses_transaksi(Request $request)
+ public function proses_transaksi(Request $request)
     {
         $request->validate([
             'items' => 'required|array|min:1',
@@ -51,6 +52,7 @@ class KasirController extends Controller
 
             $total_harga = 0;
             $items = $request->items;
+            $transaksi_ids = [];
 
             // Hitung total harga dan validasi stok
             foreach ($items as $item) {
@@ -76,19 +78,26 @@ class KasirController extends Controller
                 ]);
             }
 
+            // Generate nomor invoice
+            $invoice_number = 'INV-' . date('YmdHis') . '-' . rand(1000, 9999);
+
             // Simpan transaksi dan kurangi stok
             foreach ($items as $item) {
                 $produk = Produk::find($item['produk_id']);
                 
                 // Simpan transaksi
-                Transaksi::create([
+                $transaksi = Transaksi::create([
                     'user_id' => session('id_user'),
                     'produk_id' => $item['produk_id'],
                     'jumlah' => $item['jumlah'],
                     'total_harga' => $produk->harga * $item['jumlah'],
-                    'bayar' => $bayar, // Total bayar untuk semua item
-                    'kembalian' => $item === end($items) ? $kembalian : 0 // Kembalian hanya di item terakhir
+                    'bayar' => $bayar,
+                    'kembalian' => $item === end($items) ? $kembalian : 0,
+                    'invoice_number' => $invoice_number,
+                    'tanggal' => now()
                 ]);
+
+                $transaksi_ids[] = $transaksi->id;
 
                 // Kurangi stok
                 $produk->decrement('stok', $item['jumlah']);
@@ -96,13 +105,18 @@ class KasirController extends Controller
 
             DB::commit();
 
+            // Generate PDF
+            $pdf_url = $this->generateInvoicePDF($transaksi_ids, $invoice_number);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Transaksi berhasil!',
                 'data' => [
                     'total_harga' => $total_harga,
                     'bayar' => $bayar,
-                    'kembalian' => $kembalian
+                    'kembalian' => $kembalian,
+                    'invoice_number' => $invoice_number,
+                    'pdf_url' => $pdf_url
                 ]
             ]);
 
@@ -113,5 +127,43 @@ class KasirController extends Controller
                 'message' => 'Terjadi kesalahan: ' . $e->getMessage()
             ]);
         }
+    }
+
+    private function generateInvoicePDF($transaksi_ids, $invoice_number)
+    {
+        // Ambil data transaksi dengan relasi
+        $transaksis = Transaksi::with(['produk', 'user'])
+            ->whereIn('id', $transaksi_ids)
+            ->get();
+
+        $data = [
+            'invoice_number' => $invoice_number,
+            'transaksis' => $transaksis,
+            'total_harga' => $transaksis->sum('total_harga'),
+            'bayar' => $transaksis->first()->bayar,
+            'kembalian' => $transaksis->where('kembalian', '>', 0)->sum('kembalian'),
+            'tanggal' => $transaksis->first()->created_at,
+            'kasir' => $transaksis->first()->user->name ?? 'Admin'
+        ];
+
+        $pdf = Pdf::loadView('invoice.nota', $data);
+        
+        // Simpan PDF ke storage
+        $filename = 'invoice_' . $invoice_number . '.pdf';
+        $pdf->save(storage_path('app/public/invoices/' . $filename));
+
+        return asset('storage/invoices/' . $filename);
+    }
+
+    public function download_invoice($invoice_number)
+    {
+        $filename = 'invoice_' . $invoice_number . '.pdf';
+        $path = storage_path('app/public/invoices/' . $filename);
+
+        if (file_exists($path)) {
+            return response()->download($path);
+        }
+
+        return abort(404);
     }
 }

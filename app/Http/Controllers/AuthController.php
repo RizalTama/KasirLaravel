@@ -36,8 +36,16 @@ class AuthController extends Controller
                 session(['role' => $user->role]);
                 
                 return redirect()->route('kasir.index')->with('success', 'Login berhasil!');
+
+            } else if ($user->role === 'admin') {
+                session(['id_user' => $user->id]);
+                session(['username' => $user->username]);
+                session(['role' => $user->role]);
+                
+                return redirect()->route('admin.index')->with('success', 'Login berhasil!');
             } else {
-                return back()->with('error', 'Akses ditolak. Hanya kasir yang dapat mengakses sistem ini.');
+                // Jika role bukan kasir dan admin')
+                return back()->with('error', 'Akses ditolak. Hanya karyawan dan admin yang dapat mengakses sistem ini.');
             }
         }
 
